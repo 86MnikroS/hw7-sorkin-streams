@@ -1,43 +1,54 @@
 import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+export function compareFiles(file1Path, file2Path) {
+    return new Promise((resolve, reject) => {
+        const s1 = fs.createReadStream(file1Path);
+        const s2 = fs.createReadStream(file2Path);
 
-const file1Path = path.join(__dirname, 'photos', 'photo1.jpg');
-const file2Path = path.join(__dirname, 'photos', 'photo2.jpg');
+        let identical = true;
+        let buffer1 = Buffer.alloc(0);
+        let buffer2 = Buffer.alloc(0);
 
-console.log('Choose your destiny! Compare your files...');
+        s1.on('data', chunk => {
+            buffer1 = Buffer.concat([buffer1, chunk]);
+            compareBuffers();
+        });
 
-const stream1 = fs.createReadStream(file1Path);
-const stream2 = fs.createReadStream(file2Path);
+        s2.on('data', chunk => {
+            buffer2 = Buffer.concat([buffer2, chunk]);
+            compareBuffers();
+        });
 
-let identical = true;
-let buffer2 = [];
+        s1.on('end', checkEnd);
+        s2.on('end', checkEnd);
 
-stream2.on('data', chunk => buffer2.push(chunk));
+        s1.on('error', reject);
+        s2.on('error', reject);
 
-stream1.on('data', chunk1 => {
-    const chunk2 = buffer2.shift();
-    if (!chunk2 || !chunk1.equals(chunk2)) {
-        identical = false;
-        console.log('You lose! The files are not identical!');
-        stream1.destroy();
-        stream2.destroy();
-    }
-});
+        function compareBuffers() {
+            const minLength = Math.min(buffer1.length, buffer2.length);
+            if (minLength === 0) return;
 
-stream1.on('end', checkEnd);
-stream2.on('end', checkEnd);
+            const part1 = buffer1.subarray(0, minLength);
+            const part2 = buffer2.subarray(0, minLength);
 
-stream1.on('error', e => console.error('File1 error:', e.message));
-stream2.on('error', e => console.error('File2 error:', e.message));
+            if (!part1.equals(part2)) {
+                identical = false;
+                s1.destroy();
+                s2.destroy();
+                return resolve(false);
+            }
 
-function checkEnd() {
-    if (!identical) return;
-    if (stream1.readableEnded && stream2.readableEnded)
-        console.log('You win! Files are identical!');
-    else if (stream1.readableEnded && !stream2.readableEnded)
-        console.log('You lose! Files have different length!');
+            buffer1 = buffer1.subarray(minLength);
+            buffer2 = buffer2.subarray(minLength);
+        }
+
+        function checkEnd() {
+            if (!identical) return;
+            if (s1.readableEnded && s2.readableEnded) {
+                if (buffer1.length === 0 && buffer2.length === 0) resolve(true);
+                else resolve(false);
+            }
+        }
+    });
 }
